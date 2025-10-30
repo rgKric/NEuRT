@@ -1,0 +1,12 @@
+{
+    "hidden": 128,
+    "hidden_ff": 512,
+    "feature_num": 5,
+    "n_layers": 4,
+    "n_heads": 4,
+    "seq_len": 512,
+    "emb_norm": false,
+    "block_embedding_mode": "not_hidden",
+    "embedding_mode": "last",
+    "use_parametr_sharing_strategy": false
+}

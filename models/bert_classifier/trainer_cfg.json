@@ -1,0 +1,12 @@
+{
+    "seed": 526,
+    "batch_size": 256,
+    "lr": 1e-06,
+    "n_epochs": 2,
+    "warmup": 0.1,
+    "save_steps": 2,
+    "lr_cl": 1e-06,
+    "freez_mode": "unfreezed",
+    "sheduler_gamma": 0.95,
+    "weight_decay": 0.01
+}

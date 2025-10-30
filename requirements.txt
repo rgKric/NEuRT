@@ -1,0 +1,11 @@
+numpy==1.25.1
+pandas==2.3.3
+scipy==1.15.3
+typing-extensions>=4.10.0
+torch==2.6.0+cu124
+torchvision==0.21.0+cu124
+torchaudio==2.6.0+cu124
+matplotlib==3.7.1
+tqdm==4.67.1
+PyYAML==6.0.3
+scikit-learn==1.2.2

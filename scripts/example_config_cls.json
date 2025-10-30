@@ -1,0 +1,11 @@
+{
+    "path_to_WT": "data_ex/WT",
+    "path_to_5xFAD": "data_ex/5xFAD",
+    "path_to_model": "models/bert_recon/model_epoch_20.pth",
+    "path_to_model_cfg": "models/bert_classifier/model_cfg.json",
+    "path_to_trainer_cfg": "models/bert_classifier/trainer_cfg.json",
+    "save_path": "output_ex",
+    "train_indexes": [3], 
+    "val_indexes": [16],
+    "test_indexes": []
+}

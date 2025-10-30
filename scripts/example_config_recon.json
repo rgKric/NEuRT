@@ -1,0 +1,8 @@
+{
+    "path_to_data": "data_ex/WT",
+    "path_to_model": "models/bert_recon/model_epoch_20.pth",
+    "path_to_model_cfg": "models/bert_recon/model_cfg.json",
+    "path_to_trainer_cfg": "models/bert_recon/trainer_cfg.json",
+    "path_to_mask_cfg": null,
+    "save_path": "output_ex"
+}
