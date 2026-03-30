@@ -155,8 +155,7 @@ def validate_and_prepare_start_config(config_path: str, model_mode: str, script_
             'path_to_WT',
             'path_to_5xFAD',
             'path_to_model',
-            'path_to_model_cfg',
-            'path_to_trainer_cfg',
+            'path_to_cfg',
             'save_path',
             'train_indexes',
             'val_indexes',
@@ -202,8 +201,7 @@ def validate_and_prepare_start_config(config_path: str, model_mode: str, script_
     elif script_mode == 'cls':
         check_path('path_to_WT', expect_dir=True)
         check_path('path_to_5xFAD', expect_dir=True)
-        check_path('path_to_model_cfg')
-        check_path('path_to_trainer_cfg')
+        check_path('path_to_cfg')
         check_path('path_to_model', allow_null=(model_mode == 'test'))
 
         for k in ['train_indexes', 'val_indexes', 'test_indexes']:

@@ -186,27 +186,36 @@ class BinaryClassifier(nn.Module):
 
     
 class BioBertClassifier(nn.Module):
+    "Classifier"
     def __init__(self, cfg):
         super().__init__()
         self.bert = BioBert(cfg)
         self.classification_blocks = BinaryClassifier(cfg)
+        self.multitask = cfg.multitask
     
     def forward(self, x):
-        _, embedding = self.bert(x)
+        h, embedding = self.bert(x)
         logits = self.classification_blocks(embedding)
+        if self.multitask:
+            return logits, h 
         return logits
     
     def _load_bert(self, state_dict):
         self.bert.load_state_dict(state_dict)
     
-    def _initialize(self):
+    def _initialize(self, only_head=False):
         def init_weights(module):
-            if isinstance(module, (torch.nn.Linear, torch.nn.Embedding)):
-                torch.nn.init.xavier_uniform_(module.weight)
-            elif isinstance(module, torch.nn.LayerNorm):
-                module.bias.data.zero_()
-                module.weight.data.fill_(1.0)
-            if isinstance(module, torch.nn.Linear) and module.bias is not None:
-                module.bias.data.zero_()
-        self.model.apply(init_weights)
+            if isinstance(module, nn.Linear):
+                nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
+            elif isinstance(module, nn.Embedding):
+                nn.init.xavier_uniform_(module.weight)
+            elif isinstance(module, nn.LayerNorm):
+                nn.init.ones_(module.weight)
+                nn.init.zeros_(module.bias)
+        if only_head:
+            self.classification_blocks.apply(init_weights)
+        else:
+            self.apply(init_weights)
     

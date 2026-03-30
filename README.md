@@ -51,7 +51,6 @@ There are two main scripts you can run:
 
 **Optional arguments:**
 
-- `-a / --array_format` : Data format, `"mem"` for memmap or `"arr"` for arrays (default: `"mem"`)
 - `-m / --mode` : `"train"` or `"test"` (default: `"train"`)
 - `-n / --num_workers` : Number of workers in dataloader (default: 2)
 - `-s / --session_probs` : Count probabilities per session (0 or 1, default: 1)
@@ -64,7 +63,6 @@ There are two main scripts you can run:
 
 **Optional arguments:**
 
-- `-a / --array_format` : Data format, `"mem"` for memmap or `"arr"` for arrays (default: `"mem"`)
 - `-m / --mode` : `"train"` or `"test"` (default: `"train"`)
 - `-n / --num_workers` : Number of workers in dataloader (default: 2)
 - `-p / --part_to_split` : Fraction of data used for training (e.g., `-p` 0.9 means 90% train / 10% validation, default: 0.9)

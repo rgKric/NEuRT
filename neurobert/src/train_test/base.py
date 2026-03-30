@@ -45,7 +45,7 @@ class Trainer:
         self.n_epochs = n_epochs
         self.save_steps = save_steps
         self.save_path = save_path
-        self.device = device # device name
+        self.device = device
         self.scheduler = scheduler
 
 
@@ -87,7 +87,7 @@ class Trainer:
             
     def _save_loggs(self, mode, train_losses, val_losses, train_loggs, val_loggs) -> None:
         '''
-        ПРОПИСАТЬ СОХРАНЕНИЕ ЛОССОВ И МЕТРИК
+        Save loggs
         '''
         if train_losses:
             np.savez(os.path.join(self.save_path, 'TRAIN_LOSS.npz'), train_losses=train_losses)
@@ -99,13 +99,13 @@ class Trainer:
         else:
             print('No Val losses')
 
-        if mode == 'binary_classification':
+        if mode in ['binary_classification', 'multitask']:
             if train_loggs:
                 np.savez(os.path.join(self.save_path, 'TRAIN_METRICS.npz'), np.sum(train_loggs, axis=1))
             else:
                 print('No Train metrics')
 
-            if val_loggs:
+            if val_loggs and mode == 'binary_classification':
                 if isinstance(val_loggs[0], tuple):
                     cm_val_epochs = [val_loggs[i][0] for i in range(len(val_loggs))]
                     keys = val_loggs[0][1].keys()
@@ -115,6 +115,22 @@ class Trainer:
                     np.savez(os.path.join(self.save_path, 'SESSION_PROBS.npz'), sessions_probs)
                 else:
                     np.savez(os.path.join(self.save_path, 'VAL_METRICS.npz'), val_loggs)
+                    
+            elif val_loggs and mode == 'multitask':
+                cm_val_epochs = [val_loggs[i]['cm'] for i in range(len(val_loggs))]
+                r2 = [val_loggs[i]['r2'] for i in range(len(val_loggs))]
+                MAE = [val_loggs[i]['MAE'] for i in range(len(val_loggs))]
+                cosine_similarity = [val_loggs[i]['cosine_similarity'] for i in range(len(val_loggs))]
+                np.savez(os.path.join(self.save_path, 'VAL_CMS.npz'), cm_val_epochs)
+                np.savez(os.path.join(self.save_path, 'VAL_R2.npz'), r2)
+                np.savez(os.path.join(self.save_path, 'VAL_MAE.npz'), MAE)
+                np.savez(os.path.join(self.save_path, 'VAL_COS_SIM.npz'), cosine_similarity)
+                if val_loggs[0]['sessions_probs'] != []:
+                    keys = val_loggs[0]['sessions_probs'].keys()
+                    values = np.array([list(val_loggs[i]['sessions_probs'].values()) for i in range(len(val_loggs))]).T
+                    sessions_probs = dict(zip(keys, values))
+                    np.savez(os.path.join(self.save_path, 'SESSION_PROBS.npz'), sessions_probs)
+                    
             else:
                 print('No Val metrics')
     
@@ -196,6 +212,24 @@ class Trainer:
             cm = confusion_matrix(labels.detach().cpu().flatten(), preds.flatten(), labels=kwargs.get('class_labels'))
             return cm, loss.item()
         
+        elif mode == 'multitask':
+            instance_mask, labels, session_idx, mask_pos_index, seq = args
+            instance_mask = instance_mask.to(self.device)
+            mask_pos_index = mask_pos_index.to(self.device)
+            seq = seq.to(self.device)
+            labels = labels.to(self.device)
+            batch = (instance_mask, labels, mask_pos_index, seq)
+            self.optimizer.zero_grad()
+
+            loss, outputs, loss_items = func_loss(self.model, batch, mode, **kwargs)
+            loss.backward()
+            self.optimizer.step()
+            
+            label_preds, _ =  outputs
+            preds = torch.argmax(label_preds.detach().cpu(), dim=1)
+            cm = confusion_matrix(labels.detach().cpu().flatten(), preds.flatten(), labels=kwargs.get('class_labels'))
+            return cm, loss_items
+        
         else:
             raise KeyError('No such mode(')
         
@@ -209,6 +243,7 @@ class Trainer:
           class_labels: Optional[list[int]]=None, 
           class_weights_train: Optional[torch.Tensor]=None,
           class_weights_val: Optional[torch.Tensor]=None,
+          multitask_weigths: Optional[torch.Tensor]=torch.Tensor([1, 1, 1]),
           session_probs: bool=False) -> tuple[list, list, list, list]:
         '''
         General training loop for various tasks including pretraining and classification.
@@ -229,6 +264,7 @@ class Trainer:
             class_labels (Optional[list[int]]): Required for classification modes to compute confusion matrices.
             class_weights_train (Optional[torch.Tensor]): Optional class weights for training.
             class_weights_val (Optional[torch.Tensor]): Optional class weights for validation.
+            multitask_weigths (Optional[torch.Tensor]): Optional weights for recon_losd and cls_loss in "multitask" mode
             session_probs (bool): If True, returns session-level probabilities during validation (classification tasks).
 
         Returns:
@@ -242,7 +278,7 @@ class Trainer:
             KeyError: If an unsupported mode is provided or class_labels are missing for classification.
             TypeError: If class weights are of unsupported type.
         '''
-        if mode not in ['pretrain_reconstruction', 'binary_classification', 'behavior_classification']:
+        if mode not in ['pretrain_reconstruction', 'binary_classification', 'behavior_classification', 'multitask']:
             raise KeyError('No such mode(')
         if mode in ['binary_classification', 'behavior_classification'] and class_labels == None:
             raise KeyError('Need labels of classes for this mode')
@@ -266,37 +302,50 @@ class Trainer:
         # train loop
         for epoch in range(self.n_epochs):
             self.model.train()
-            epoch_loss = 0
+            if mode == 'multitask':
+                epoch_loss = torch.Tensor([0, 0, 0])
+            else:
+                epoch_loss = 0
             train_batch_loggs = []
             for batch in tqdm(data_loader_train, desc=f'Epoch: {epoch + 1}'):
-                train_loggs, loss_value = self._batch_iteration(mode, 
-                                                           func_loss, 
-                                                           *batch, 
-                                                           class_labels=class_labels, 
-                                                           class_weights=class_weights_train)
+                train_loggs, loss_value = self._batch_iteration(mode,
+                                                                func_loss, 
+                                                                *batch, 
+                                                                class_labels=class_labels, 
+                                                                class_weights=class_weights_train, 
+                                                                multitask_weigths=multitask_weigths)
                 epoch_loss += loss_value
                 train_batch_loggs.append(train_loggs)
                 
             if self.scheduler:
-                self.scheduler.step() # (ExponentialLR)
+                self.scheduler.step() # scheduler step (ExponentialLR)
             
             if mode != 'pretrain_reconstruction':
                 train_epochs_loggs.append(train_batch_loggs)
             avg_train_loss = epoch_loss / len(data_loader_train)
             train_losses.append(avg_train_loss)
-            print(f"Epoch {epoch + 1}/{self.n_epochs}, Training Loss: {avg_train_loss:.4f}")
+            
+            if mode == 'multitask':
+                print(f"Epoch {epoch + 1}/{self.n_epochs}; Training Loss: CLS: {avg_train_loss[0]:.4f} | MASK_RECON: {avg_train_loss[1]:.4f} | UNMASKED_RECON: {avg_train_loss[2]:.4f}")
+            else:    
+                print(f"Epoch {epoch + 1}/{self.n_epochs}, Training Loss: {avg_train_loss:.4f}")
 
             # validation
             if data_loader_val is not None:
                 tester = Tester(self.model, data_loader_val, self.device)
-                val_loggs, val_loss = tester.test(func_loss=func_loss, 
+                val_loggs, val_loss = tester.test(mode=mode,
+                                                  func_loss=func_loss, 
                                                   class_labels=class_labels, 
                                                   session_probs=session_probs,
                                                   class_weights=class_weights_val,
-                                                  mode=mode)
+                                                  multitask_weigths=multitask_weigths)
                 val_losses.append(val_loss)
                 val_epoch_loggs.append(val_loggs)
-                print(f"Epoch {epoch + 1}/{self.n_epochs}, Validation Loss: {val_loss:.4f}")
+                
+                if mode == 'multitask':
+                    print(f"Epoch {epoch + 1}/{self.n_epochs}; Validation Loss: CLS: {val_loss[0]:.4f} | MASK_RECON: {val_loss[1]:.4f} | UNMASKED_RECON: {val_loss[2]:.4f}")
+                else:
+                    print(f"Epoch {epoch + 1}/{self.n_epochs}, Validation Loss: {val_loss:.4f}")
 
             # Save the model checkpoint
             self._save_model(epoch)
@@ -443,6 +492,28 @@ class Tester:
                 preds = torch.argmax(outputs, dim=2).detach().cpu()
             return (preds, labels, session_idx), loss_value
         
+        elif mode == 'multitask':
+            instance_mask, labels, session_idx, mask_pos_index, seq = args
+            instance_mask = instance_mask.to(self.device)
+            mask_pos_index = mask_pos_index.to(self.device)
+            seq = seq.to(self.device)
+            labels = labels.to(self.device)
+            batch = (instance_mask, labels, mask_pos_index, seq)
+            
+            if func_loss is not None:
+                loss, outputs, loss_items = func_loss(self.model, batch, mode, **kwargs)
+            else:
+                loss_items = torch.Tensor([0.0, 0.0, 0.0])
+                outputs = self.model(instance_mask)
+            
+            label_preds, seq_recon= outputs
+            preds_recon = seq_recon.gather(1, mask_pos_index.unsqueeze(2).expand(-1, -1, seq_recon.shape[-1]))  
+            cos_sim = cosine_similarity(preds_recon.detach().cpu(), seq.detach().cpu(), dim=1)
+            preds_cls = torch.argmax(label_preds, dim=1).detach().cpu()
+            labels = labels.cpu()
+            
+            return ((preds_cls, labels, session_idx), (preds_recon.detach().cpu(), seq.detach().cpu(), cos_sim)), loss_items
+        
         else:
             raise  KeyError('No such mode(')
             
@@ -509,6 +580,49 @@ class Tester:
                 return cm, sessions_probs
 
             return cm
+        
+        elif mode == 'multitask':
+            preds_cls = torch.cat([eval_data[i][0][0] for i in range(len(eval_data))]).ravel()
+            labels = torch.cat([eval_data[i][0][1] for i in range(len(eval_data))]).ravel()
+            session_idx = torch.cat([eval_data[i][0][2] for i in range(len(eval_data))]).ravel()
+            preds_recon = [eval_data[i][1][0] for i in range(len(eval_data))]
+            seqs = [eval_data[i][1][1] for i in range(len(eval_data))]
+            cos_sim = [eval_data[i][1][2] for i in range(len(eval_data))]
+            
+            cm = confusion_matrix(labels, preds_cls, labels=kwargs.get('class_labels'))
+            if kwargs.get('session_probs'):
+                probs = []
+                unique_sessions = torch.unique(session_idx)
+
+                for session in unique_sessions:
+                    # Получаем индексы элементов, соответствующих текущей сессии
+                    session_indices = torch.where(session_idx == session)[0]
+
+                    # Получаем предсказанные метки и реальные метки для текущей сессии
+                    preds_session = preds_cls[session_indices]
+                    labels_session = labels[session_indices]
+
+                    # Вычисляем вероятность
+                    probability = (preds_session == labels_session).float().mean().item()
+                    probs.append(probability)
+                    
+                # выставляем метки сессий
+                sessions_probs = dict(zip(self.loader.dataset.names, probs))
+            else:
+                sessions_probs = []
+            
+            seqs = torch.cat(seqs, dim=0).view(-1, 5).cpu().numpy()
+            preds_recon = torch.cat(preds_recon, dim=0).view(-1, 5).cpu().numpy()
+            cos_sim = torch.cat(cos_sim, dim=0).cpu().numpy()
+            r2 = r2_score(seqs, preds_recon, multioutput='raw_values')
+            MAE = mean_absolute_error(seqs, preds_recon, multioutput='raw_values')
+            
+            metrics = {'r2': r2,
+                       'MAE': MAE,
+                       'cosine_similarity': np.mean(cos_sim, axis=0),
+                       'cm': cm, 
+                       'sessions_probs': sessions_probs}
+            return metrics
             
 
     def test(self, 
@@ -517,6 +631,7 @@ class Tester:
              data_parallel: bool=False, 
              class_labels: Optional[torch.Tensor]=None, 
              class_weights: Optional[torch.Tensor]=None,
+             multitask_weigths: Optional[torch.Tensor]=torch.Tensor([1, 1, 1]),
              session_probs: bool=False) -> tuple[Any, float]:
         '''
         Evaluate the model on the validation DataLoader.
@@ -527,6 +642,7 @@ class Tester:
             data_parallel (bool): If True, use multiple GPUs.
             class_labels (Optional[torch.Tensor]): Required for classification tasks.
             class_weights (Optional[torch.Tensor]): Optional weights for loss calculation.
+            multitask_weigths (Optional[torch.Tensor]): Optional weights for recon_losd and cls_loss in "multitask" mode
             session_probs (bool): If True, compute session-level probabilities.
 
         Returns:
@@ -534,8 +650,8 @@ class Tester:
                 - stats: Dict for pretraining or (confusion_matrix, session_probs) for classification.
                 - avg_loss: float, average loss over validation batches.
         '''
-        if mode not in ['pretrain_reconstruction', 'binary_classification', 'behavior_classification']:
-            raise KeyError('No such mode')
+        if mode not in ['pretrain_reconstruction', 'binary_classification', 'behavior_classification', 'multitask']:
+            raise KeyError('No such mode(')
         if (mode == 'binary_classification' or mode == 'behavior_classification') and class_labels == None:
             raise KeyError('Need labels of classes for this mode')
             
@@ -543,21 +659,23 @@ class Tester:
         self.model.eval()
         
         eval_data = []
-        eval_loss = []
+        if mode == 'multitask':
+            eval_loss = torch.Tensor([0., 0., 0.])
+        else:
+            eval_loss = 0
         with torch.no_grad():
             for batch in tqdm(self.loader):
                 batch_eval_data, loss_value = self._evaluate_batch(mode, 
-                                                                   func_loss, 
+                                                                   func_loss,
                                                                    *batch, 
                                                                    class_labels=class_labels,
                                                                    class_weights=class_weights,
-                                                                   session_probs=session_probs)
+                                                                   session_probs=session_probs, 
+                                                                   multitask_weigths=multitask_weigths)
                 eval_data.append(batch_eval_data)
-                eval_loss.append(loss_value)
+                eval_loss += loss_value
         
         stats = self._count_statistics(mode, eval_data, class_labels=class_labels, session_probs=session_probs)
-        if self.save_path != None:
-            self._save_loggs(mode, stats)
-
-        return stats, np.mean(eval_loss)
+        
+        return stats, (eval_loss)/len(self.loader)
     

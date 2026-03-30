@@ -6,17 +6,17 @@ from torch import from_numpy
 
 from sklearn.utils.class_weight import compute_class_weight
 
-from typing import Namedtuple
+from typing import NamedTuple
 
 
 class Preprocess4Mask:
     ''' Pre-processing steps for pretraining transformer '''
-    def __init__(self, mask_cfg: Namedtuple):
+    def __init__(self, mask_cfg: NamedTuple):
         '''
-        Initializes preprocessing parameters from a configuration Namedtuple.
+        Initializes preprocessing parameters from a configuration NamedTuple.
 
         Args:
-            mask_cfg (Namedtuple): Configuration containing:
+            mask_cfg (NamedTuple): Configuration containing:
                 - mask_ratio (float): Fraction of tokens to mask.
                 - max_gram (int): Maximum span length to mask.
                 - mask_prob (float): Probability to zero out the masked span.
@@ -118,23 +118,49 @@ class Dataset4Pretrain(DatasetBase):
     
 
 class Dataset4FineTune(DatasetBase):
-    def __init__(self, data, shapes, labels, names):
+    def __init__(self, data, shapes, labels, names, pipeline=None):
         super().__init__(data, shapes)
         self.labels = labels
         self.names = names
+        self.pipeline = pipeline
 
     def __getitem__(self, idx):
         file_idx, in_file_idx = self._get_idx(idx)
         label = self.labels[file_idx][in_file_idx]
         instance = np.array(self.data[file_idx][in_file_idx])
+        
         return from_numpy(instance).type(torch.float32), label, file_idx
     
-    def count_weigths(self):
-        '''
-        Compute class weights, but we did not use it
-        '''
+    def count_weigths(self, method=False, beta=1):
+        if not method:
+            return None
         label_list = np.concatenate([y for y in self.labels], axis=0)
-        class_weights = compute_class_weight(class_weight='balanced', classes=np.unique(label_list), y=label_list)
+        if method == 'ratio':
+            pos_weight = np.where(label_list == 0)[0].shape[0] / np.where(label_list == 1)[0].shape[0]
+            class_weights = [1, pos_weight**beta]
+        elif method == 'balanced': 
+            class_weights = compute_class_weight(class_weight='balanced', classes=np.unique(label_list), y=label_list)
         weights = torch.tensor(class_weights, dtype=torch.float32)
         return weights
+    
+
+class AugDataset4FineTune(torch.utils.data.Dataset):
+    '''
+    Multitask Dataset (recon + cls)
+    '''
+    def __init__(self, dataset, pipeline=[]):
+        super().__init__()
+        self.dataset = dataset
+        self.names = dataset.names
+        self.pipeline = pipeline
+        
+    def __len__(self):
+        return len(self.dataset)
+    
+    def __getitem__(self, idx):
+        instance, label, session_idx = self.dataset[idx]
+        for proc in self.pipeline:
+            instance = proc(instance.numpy())
+        mask_seq, masked_pos, seq = instance
+        return from_numpy(mask_seq).type(torch.float32), label, session_idx, from_numpy(masked_pos).long(), from_numpy(seq).type(torch.float32)
     

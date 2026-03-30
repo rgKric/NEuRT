@@ -1,6 +1,7 @@
 from typing import NamedTuple
 from collections import namedtuple
 import json
+import yaml
 
     
 class MaskConfig(NamedTuple):
@@ -66,3 +67,24 @@ class TrainerConfig(NamedTuple):
     @classmethod
     def from_json(cls, file): # load config from json file
         return cls(**json.load(open(file, "r")))
+    
+class AnyConfig:
+    '''
+    Simple yaml config for fine-tuning
+    '''
+    def __init__(self, data: dict):
+        self.data = data
+        for key, value in data.items():
+            if isinstance(value, dict):
+                value = AnyConfig(value)
+            setattr(self, key, value)
+    
+    def to_yaml(self, path):
+        with open(path, "w") as f:
+            yaml.dump(self.data, f, default_flow_style=False, sort_keys=False)
+            
+    @classmethod
+    def from_yaml(cls, path):
+        with open(path) as f:
+            data = yaml.safe_load(f)
+        return cls(data)

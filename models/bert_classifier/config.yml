@@ -1,0 +1,44 @@
+dataset:
+  seed: 123
+  val_fold: 9
+  test_fold: 13
+  array_format: arr
+  beta: 1.0
+  weight_method: False
+model:
+  task: classifier_for_fine_tune
+  feature_num: 5
+  hidden: 128
+  hidden_ff: 512
+  n_layers: 4
+  n_heads: 4
+  seq_len: 512
+  use_parametr_sharing_strategy: false
+  block_embedding_mode: not_hidden
+  embedding_mode: last
+  emb_norm: false
+  mode_cl: Binary
+  multitask: true # if cfg.train.task = multitask
+mask:
+  mask_ratio: 0.3
+  mask_alpha: 6
+  max_gram: 20
+  mask_prob: 0.8
+  replace_prob: 0.0
+train:
+  task: multitask
+  batch_size: 256
+  lr: 1.0e-05
+  n_epochs: 20
+  save_steps: 1
+  freez_mode: unfreezed
+  lr_cl: 1.0e-05
+  cls_weight: 1 # need only with multitask
+  recon_mask_weight: 1000 # need only with multitask
+  recon_full_weight: 500 # need only with multitask
+optim:
+  warmup: 0.1
+  weight_decay: 0.01
+scheduler:
+  sheduler_gamma: 0.95
+  eta_min: 1.0e-07
