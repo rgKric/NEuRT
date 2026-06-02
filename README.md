@@ -1,6 +1,9 @@
 # NEuRT
 
-TEXT
+Here we introduce **NEuRT: A Transformer-Based Model for Explainable Neuronal Activity Analysis**. This model is designed to analyze the neuronal activity of the mouse hippocampus and is officially published in the journal IEEE Transactions on Neural Systems and Rehabilitation Engineering. 
+**DOI**: https://doi.org/10.1109/TNSRE.2026.3689342
+
+_Note: This repository has not been updated since the latest review stage and will be updated shortly._
 
 ---
 
